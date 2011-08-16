@@ -97,7 +97,7 @@ handle_cast(_Msg, State) ->
 handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
     case dict:find(Pid, PidMap) of
         {ok, Keys} ->
-            NewCBState = lists:foldl(fun (Key, Acc) -> CBMod:handle_death(Key, Pid, Acc) end, CBState, Keys),
+            NewCBState = lists:foldl(fun (Key, Acc) -> CBMod:handle_death(Pid, Key, Acc) end, CBState, Keys),
             NewPidMap  = dict:erase(Pid, PidMap),
             NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
             {noreply, NewState};

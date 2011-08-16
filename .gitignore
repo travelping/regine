@@ -1,2 +1,4 @@
+*.beam
 /ebin
 /dist
+/test-log
