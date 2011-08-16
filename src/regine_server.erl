@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 -export([start/2, start/3, start_link/2, start_link/3, register/4, unregister/3,
-         lookup_pid/2, behaviour_info/1]).
+         unregister_pid/2, unregister_pid/3, lookup_pid/2, behaviour_info/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
@@ -20,7 +20,7 @@
 %% -- API
 behaviour_info(callbacks) ->
     %% TODO: code_change/3
-    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_death,3}, {terminate,2}];
+    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
 behaviour_info(_) ->
     undefined.
 
@@ -41,6 +41,12 @@ register(_, _, _, _) ->
 
 unregister(Server, Key, OtherArgs) ->
     gen_server:call(Server, {unregister, Key, OtherArgs}).
+
+unregister_pid(Server, Pid) when is_pid(Pid) ->
+    gen_server:call(Server, {unregister_pid, Pid}).
+
+unregister_pid(Server, Pid, Key) when is_pid(Pid) ->
+    gen_server:call(Server, {unregister_pid_key, Pid, Key}).
 
 lookup_pid(Server, Pid) when is_pid(Pid) ->
     gen_server:call(Server, {lookup_pid, Pid});
@@ -76,11 +82,36 @@ handle_call({register, Pid, Key, OtherArgs}, _From, State = #state{mod = CBMod, 
         ErrorReply = {error, _} ->
             {reply, ErrorReply, State}
     end;
-handle_call({unregister, Key, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+
+handle_call({unregister_key, Key, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
     {RegPids, NewCBState} = CBMod:handle_unregister(Key, CBState, OtherArgs),
-    NewPidMap = lists:foldl(fun (Pid, Acc) -> unregister_pid(Key, Pid, Acc) end, PidMap, RegPids),
+    NewPidMap = lists:foldl(fun (Pid, Acc) -> remove_pid_key(Pid, Key, Acc) end, PidMap, RegPids),
     NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
     {reply, ok, NewState};
+
+handle_call({unregister_pid, Pid}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+    case dict:find(Pid, PidMap) of
+        {ok, Keys} ->
+            unlink(Pid),
+            NewCBState = CBMod:handle_pid_remove(Pid, Keys, CBState),
+            NewPidMap  = dict:erase(Pid, PidMap),
+            NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
+            {reply, ok, NewState};
+        error ->
+            {reply, {error, unknown_pid}, State}
+    end;
+
+handle_call({unregister_pid_key, Pid, Key}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+    case dict:is_key(Pid, PidMap) of
+        true ->
+            NewCBState = CBMod:handle_pid_remove(Pid, [Key], CBState),
+            NewPidMap  = remove_pid_key(Pid, Key, PidMap),
+            NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
+            {reply, ok, NewState};
+        false ->
+            {reply, {error, unknown_pid}, State}
+    end;
+
 handle_call({lookup_pid, Pid}, _From, State = #state{pidmap = PidMap}) ->
     case dict:find(Pid, PidMap) of
         {ok, Keys} ->
@@ -94,12 +125,13 @@ handle_call(_Call, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState0}) ->
     case dict:find(Pid, PidMap) of
         {ok, Keys} ->
-            NewCBState = lists:foldl(fun (Key, Acc) -> CBMod:handle_death(Pid, Key, Acc) end, CBState, Keys),
-            NewPidMap  = dict:erase(Pid, PidMap),
-            NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
+            CBState1  = CBMod:handle_death(Pid, Reason, CBState0),
+            CBState2  = CBMod:handle_pid_remove(Pid, Keys, CBState1),
+            NewPidMap = dict:erase(Pid, PidMap),
+            NewState  = State#state{modstate = CBState2, pidmap = NewPidMap},
             {noreply, NewState};
         error ->
             {stop, Reason, State}
@@ -115,13 +147,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% ------------------------------------------------------------------------------------------
 %% -- helpers
-unregister_pid(Key, Pid, PidMap) ->
-    case dict:find(Pid, PidMap) of
-        {ok, [Key]} ->
+remove_pid_key(Pid, Key, PidMap) ->
+    case dict:fetch(Pid, PidMap) of
+        [Key] ->
             unlink(Pid),
             dict:erase(Pid, PidMap);
-        {ok, [_OtherKey]} ->
+        [_OtherKey] ->
             PidMap;
-        {ok, AllKeys} ->
-            dict:store(Pid, ordsets:delete(Key, AllKeys), PidMap)
+        AllKeys ->
+            dict:store(Pid, ordsets:del_element(Key, AllKeys), PidMap)
     end.

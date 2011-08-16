@@ -11,7 +11,7 @@
 -behaviour(regine_server).
 
 -export([start/0, lookup/1, register/2, unregister/1]).
--export([init/1, handle_register/4, handle_unregister/2, handle_death/3, terminate/2]).
+-export([init/1, handle_register/4, handle_unregister/2, handle_pid_remove/3, handle_death/3, terminate/2]).
 
 -define(NAME, ?MODULE).
 
@@ -44,9 +44,11 @@ handle_unregister(Key, Table) ->
     ets:delete(Key, Table),
     {Pids, Table}.
 
-handle_death(Pid, Key, Table) ->
-    ets:delete_object(Table, {Key, Pid}),
+handle_pid_remove(Pid, Keys, Table) ->
+    lists:foreach(fun (Key) ->
+                          ets:delete_object(Table, {Key, Pid})
+                  end, Keys),
     Table.
 
-terminate(_Reason, _State) ->
-    ok.
+handle_death(_Pid, _Reason, Table) -> Table.
+terminate(_Reason, _State) -> ok.
