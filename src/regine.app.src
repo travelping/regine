@@ -1,0 +1,7 @@
+{application, regine,
+  [{description, "a generic process registry"},
+   {vsn, "1"},
+   {registered,[]},
+   {env,[]},
+   {applications,[kernel,stdlib]}]
+}.
