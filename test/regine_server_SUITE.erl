@@ -1,5 +1,7 @@
 -module(regine_server_SUITE).
 -compile(export_all).
+-define(CB, ?MODULE).
+
 
 unregister_on_EXIT(_Config) ->
     TestPid = test_process(),
@@ -13,8 +15,18 @@ unregister_on_EXIT(_Config) ->
     timer:sleep(100),
     [] = regine_ets_example:lookup(TestKey).
 
+register_with_pid_not_alive(_Config) ->
+    TestPid = test_process(),
+    TestKey = make_ref(),
+
+    regine_ets_example:start(),
+    kill_test_process(TestPid),
+    regine_ets_example:register(TestKey, TestPid),
+    timer:sleep(100),
+    [] = regine_ets_example:lookup(TestKey).
+
 all() ->
-    [unregister_on_EXIT].
+    [unregister_on_EXIT, register_with_pid_not_alive].
 
 init_per_suite(Config) ->
     Config.
