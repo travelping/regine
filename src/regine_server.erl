@@ -21,7 +21,7 @@
 %% -- API
 behaviour_info(callbacks) ->
     %% TODO: code_change/3
-    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
+    [{init,1}, {handle_register,4}, {handle_unregister,3}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
     %% these are optional: {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}
 behaviour_info(_) ->
     undefined.
