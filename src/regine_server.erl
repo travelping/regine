@@ -20,7 +20,8 @@
 %% -- API
 behaviour_info(callbacks) ->
     %% TODO: code_change/3
-    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
+    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2},
+     {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}];
 behaviour_info(_) ->
     undefined.
 
@@ -119,8 +120,31 @@ handle_call({lookup_pid, Pid}, _From, State = #state{pidmap = PidMap}) ->
         error ->
             {reply, [], State}
     end;
+
+handle_call({cb, Call}, From, State = #state{mod = CBMod, modstate = CBState0}) ->
+    case catch CBMod:handle_call(Call, From, CBState0) of
+        {reply, Reply, CBState1} ->
+            {reply, Reply, State#state{modstate = CBState1}};
+        {stop, Reason, Reply, CBState1} ->
+            {stop, Reason, Reply, State#state{modstate = CBState1}};
+        {stop, Reason, CBState1} ->
+            {stop, Reason, State#state{modstate = CBState1}};
+        Other ->
+            {reply, Other, State}
+    end;
+
 handle_call(_Call, _From, State) ->
     {noreply, State}.
+
+handle_cast({cb, Msg}, State = #state{mod = CBMod, modstate = CBState0}) ->
+    case catch CBMod:handle_cast(Msg, CBState0) of
+        {noreply, CBState1} ->
+            {noreply, State#state{modstate = CBState1}};
+        {stop, Reason, CBState1} ->
+            {stop, Reason, State#state{modstate = CBState1}};
+        _ ->
+            {noreply, State}
+    end;
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -136,6 +160,17 @@ handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, 
         error ->
             {stop, Reason, State}
     end;
+
+handle_info({cb, Info}, State = #state{mod = CBMod, modstate = CBState0}) ->
+    case catch CBMod:handle_info(Info, CBState0) of
+        {noreply, CBState1} ->
+            {noreply, State#state{modstate = CBState1}};
+        {stop, Reason, CBState1} ->
+            {stop, Reason, State#state{modstate = CBState1}};
+        _ ->
+            {noreply, State}
+    end;
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
