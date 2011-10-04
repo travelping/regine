@@ -11,7 +11,8 @@
 -behaviour(gen_server).
 
 -export([start/2, start/3, start_link/2, start_link/3, register/4, unregister/3,
-         unregister_pid/2, unregister_pid/3, lookup_pid/2, behaviour_info/1]).
+         unregister_pid/2, unregister_pid/3, lookup_pid/2, behaviour_info/1,
+         call/2, call/3, cast/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
@@ -20,8 +21,8 @@
 %% -- API
 behaviour_info(callbacks) ->
     %% TODO: code_change/3
-    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2},
-     {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}];
+    [{init,1}, {handle_register,4}, {handle_unregister,2}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
+    %% these are optional: {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}
 behaviour_info(_) ->
     undefined.
 
@@ -54,6 +55,15 @@ lookup_pid(Server, Pid) when is_pid(Pid) ->
 lookup_pid(_, _) ->
     error(badarg).
 
+call(Server, Call) ->
+    gen_server:call(Server, {cb, Call}).
+
+call(Server, Call, Timeout) ->
+    gen_server:call(Server, {cb, Call}, Timeout).
+
+cast(Server, Msg) ->
+    gen_server:cast(Server, {cb, Msg}).
+    
 %% ------------------------------------------------------------------------------------------
 %% -- gen_server callbacks
 -record(state, {
@@ -161,7 +171,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, 
             {stop, Reason, State}
     end;
 
-handle_info({cb, Info}, State = #state{mod = CBMod, modstate = CBState0}) ->
+handle_info(Info, State = #state{mod = CBMod, modstate = CBState0}) ->
     case catch CBMod:handle_info(Info, CBState0) of
         {noreply, CBState1} ->
             {noreply, State#state{modstate = CBState1}};
@@ -169,10 +179,7 @@ handle_info({cb, Info}, State = #state{mod = CBMod, modstate = CBState0}) ->
             {stop, Reason, State#state{modstate = CBState1}};
         _ ->
             {noreply, State}
-    end;
-
-handle_info(_Info, State) ->
-    {noreply, State}.
+    end.
 
 terminate(Reason, #state{mod = CBMod, modstate = CBState}) ->
     CBMod:terminate(Reason, CBState).
