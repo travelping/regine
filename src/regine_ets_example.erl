@@ -8,10 +8,10 @@
 % Copyright (c) Travelping GmbH <info@travelping.com>
 
 -module(regine_ets_example).
--behaviour(regine_server).
-
 -export([start/0, lookup/1, register/2, unregister/1]).
--export([init/1, handle_register/4, handle_unregister/2, handle_pid_remove/3, handle_death/3, terminate/2]).
+
+-behaviour(regine_server).
+-export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3, handle_death/3, terminate/2]).
 
 -define(NAME, ?MODULE).
 
@@ -39,7 +39,7 @@ handle_register(Pid, Key, _Args, Table) ->
     ets:insert(Table, {Key, Pid}),
     {ok, [Key], Table}.
 
-handle_unregister(Key, Table) ->
+handle_unregister(Key, Table, _Args) ->
     Pids = ets:lookup(Table, Key),
     ets:delete(Key, Table),
     {Pids, Table}.

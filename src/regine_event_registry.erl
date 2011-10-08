@@ -8,10 +8,10 @@
 % Copyright (c) Travelping GmbH <info@travelping.com>
 
 -module(regine_event_registry).
--behaviour(regine_server).
-
 -export([start_link/1, publish/3, subscribe/3, get_subscribers/2, get_subscriptions/2, unsubscribe/2, unsubscribe/3]).
--export([init/1, handle_register/4, handle_unregister/2, handle_pid_remove/3, handle_death/3, terminate/2]).
+
+-behaviour(regine_server).
+-export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3, handle_death/3, terminate/2]).
 
 %% ------------------------------------------------------------------------------------------
 %% -- API
@@ -48,7 +48,7 @@ handle_register(Pid, EventType, _Args, Table) ->
     ets:insert(Table, {EventType, Pid}),
     {ok, [EventType], Table}.
 
-handle_unregister(EventType, Table) ->
+handle_unregister(EventType, Table, _Args) ->
     Pids = ets:lookup(Table, EventType),
     ets:delete(EventType, Table),
     {Pids, Table}.
