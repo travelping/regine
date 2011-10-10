@@ -48,7 +48,7 @@ handle_register(Pid, EventType, _Args, Table) ->
     ets:insert(Table, {EventType, Pid}),
     {ok, [EventType], Table}.
 
-handle_unregister(EventType, Table, _Args) ->
+handle_unregister(EventType, _Args, Table) ->
     Pids = ets:lookup(Table, EventType),
     ets:delete(EventType, Table),
     {Pids, Table}.

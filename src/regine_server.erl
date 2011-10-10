@@ -42,7 +42,7 @@ register(_, _, _, _) ->
     error(badarg).
 
 unregister(Server, Key, OtherArgs) ->
-    gen_server:call(Server, {unregister, Key, OtherArgs}).
+    gen_server:call(Server, {unregister_key, Key, OtherArgs}).
 
 unregister_pid(Server, Pid) when is_pid(Pid) ->
     gen_server:call(Server, {unregister_pid, Pid}).
@@ -95,7 +95,7 @@ handle_call({register, Pid, Key, OtherArgs}, _From, State = #state{mod = CBMod, 
     end;
 
 handle_call({unregister_key, Key, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
-    {RegPids, NewCBState} = CBMod:handle_unregister(Key, CBState, OtherArgs),
+    {RegPids, NewCBState} = CBMod:handle_unregister(Key, OtherArgs, CBState),
     NewPidMap = lists:foldl(fun (Pid, Acc) -> remove_pid_key(Pid, Key, Acc) end, PidMap, RegPids),
     NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
     {reply, ok, NewState};

@@ -39,7 +39,7 @@ handle_register(Pid, Key, _Args, Table) ->
     ets:insert(Table, {Key, Pid}),
     {ok, [Key], Table}.
 
-handle_unregister(Key, Table, _Args) ->
+handle_unregister(Key, _Args, Table) ->
     Pids = ets:lookup(Table, Key),
     ets:delete(Key, Table),
     {Pids, Table}.
