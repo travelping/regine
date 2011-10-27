@@ -181,7 +181,10 @@ handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, 
             NewState  = State#state{modstate = CBState2, pidmap = NewPidMap},
             {noreply, NewState};
         error ->
-            {stop, Reason, State}
+			%% ignore 'EXIT' for unknown pid
+			%%  under some special circumstance we might get an 'EXIT'
+			%%  for the same pid multiple times
+            {noreply, State}
     end;
 
 handle_info(Info, State = #state{mod = CBMod, modstate = CBState0}) ->
