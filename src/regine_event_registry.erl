@@ -8,7 +8,7 @@
 % Copyright (c) Travelping GmbH <info@travelping.com>
 
 -module(regine_event_registry).
--export([start_link/1, publish/3, subscribe/3, get_subscribers/2, get_subscriptions/2, unsubscribe/2, unsubscribe/3]).
+-export([start_link/1, publish/3, send_event/4, subscribe/3, get_subscribers/2, get_subscriptions/2, unsubscribe/2, unsubscribe/3]).
 
 -behaviour(regine_server).
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3, handle_death/3, terminate/2]).
@@ -22,6 +22,9 @@ publish(ServerName, EventType, EventData) ->
     lists:foreach(fun ({_, Pid}) ->
                           Pid ! {'EVENT', ServerName, EventType, EventData}
                   end, ets:lookup(ServerName, EventType)).
+
+send_event(ServerName, Pid, EventType, EventData) ->
+    Pid ! {'EVENT', ServerName, EventType, EventData}.
 
 subscribe(ServerName, EventType, Pid) ->
     regine_server:register(ServerName, Pid, EventType, undefined).
