@@ -10,7 +10,7 @@
 -module(regine_server).
 -behaviour(gen_server).
 
--export([start/2, start/3, start_link/2, start_link/3, register/4, unregister/3,
+-export([start/2, start/3, start_link/2, start_link/3, register/4, unregister/3, update/4,
          unregister_pid/2, unregister_pid/3, lookup_pid/2, behaviour_info/1,
          call/2, call/3, cast/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -22,7 +22,7 @@
 behaviour_info(callbacks) ->
     %% TODO: code_change/3
     [{init,1}, {handle_register,4}, {handle_unregister,3}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
-    %% these are optional: {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}
+    %% these are optional: {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}, {handle_update,4}
 behaviour_info(_) ->
     undefined.
 
@@ -49,6 +49,9 @@ unregister_pid(Server, Pid) when is_pid(Pid) ->
 
 unregister_pid(Server, Pid, Key) when is_pid(Pid) ->
     gen_server:call(Server, {unregister_pid_key, Pid, Key}).
+
+update(Server, OldKey, NewKey, OtherArgs) ->
+    gen_server:call(Server, {update_key, OldKey, NewKey, OtherArgs}).
 
 lookup_pid(Server, Pid) when is_pid(Pid) ->
     gen_server:call(Server, {lookup_pid, Pid});
@@ -97,6 +100,16 @@ handle_call({register, Pid, Key, OtherArgs}, _From, State = #state{mod = CBMod, 
 handle_call({unregister_key, Key, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
     {RegPids, NewCBState} = CBMod:handle_unregister(Key, OtherArgs, CBState),
     NewPidMap = lists:foldl(fun (Pid, Acc) -> remove_pid_key(Pid, Key, Acc) end, PidMap, RegPids),
+    NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
+    {reply, ok, NewState};
+
+handle_call({update_key, OldKey, NewKey, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+	{RegPids, NewCBState} = try CBMod:handle_update(OldKey, NewKey, OtherArgs, CBState)
+							catch
+								error:undef ->
+									default_update(OldKey, NewKey, OtherArgs, CBMod, CBState)
+							end,
+    NewPidMap = lists:foldl(fun (Pid, Acc) -> update_pid_key(Pid, OldKey, NewKey, Acc) end, PidMap, RegPids),
     NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
     {reply, ok, NewState};
 
@@ -168,7 +181,10 @@ handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, 
             NewState  = State#state{modstate = CBState2, pidmap = NewPidMap},
             {noreply, NewState};
         error ->
-            {stop, Reason, State}
+			%% ignore 'EXIT' for unknown pid
+			%%  under some special circumstance we might get an 'EXIT'
+			%%  for the same pid multiple times
+            {noreply, State}
     end;
 
 handle_info(Info, State = #state{mod = CBMod, modstate = CBState0}) ->
@@ -199,3 +215,11 @@ remove_pid_key(Pid, Key, PidMap) ->
         AllKeys ->
             dict:store(Pid, ordsets:del_element(Key, AllKeys), PidMap)
     end.
+
+update_pid_key(Pid, OldKey, NewKey, PidMap) ->
+	dict:update(Pid, fun(Old) -> ordsets:add_element(NewKey, ordsets:del_element(OldKey, Old)) end, NewKey, PidMap).
+
+default_update(OldKey, NewKey, OtherArgs, CBMod, CBState) ->
+	{RegPids, CBState1} = CBMod:handle_unregister(OldKey, OtherArgs, CBState),
+	NewCBState = lists:foldl(fun(Pid, StateX) -> {ok, _, NewStateX} = CBMod:handle_register(Pid, NewKey, OtherArgs, StateX), NewStateX end, CBState1, RegPids),
+	{RegPids, NewCBState}.
