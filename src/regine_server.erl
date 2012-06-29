@@ -217,14 +217,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------------------------------
 %% -- helpers
 remove_pid_key(Pid, Key, PidMap) ->
-    case dict:fetch(Pid, PidMap) of
-        [Key] ->
+    case dict:find(Pid, PidMap) of
+        {ok, [Key]} ->
             unlink(Pid),
             dict:erase(Pid, PidMap);
-        [_OtherKey] ->
+        {ok, [_OtherKey]} ->
             PidMap;
-        AllKeys ->
-            dict:store(Pid, ordsets:del_element(Key, AllKeys), PidMap)
+        {ok, AllKeys} ->
+            dict:store(Pid, ordsets:del_element(Key, AllKeys), PidMap);
+        error ->
+            PidMap
     end.
 
 update_pid_key(Pid, OldKey, NewKey, PidMap) ->
