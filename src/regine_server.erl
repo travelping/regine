@@ -23,7 +23,7 @@
 
 -export([start/2, start/3, start_link/2, start_link/3, register/4, unregister/3, update/4,
          unregister_pid/2, unregister_pid/3, lookup_pid/2, behaviour_info/1,
-         call/2, call/3, cast/2]).
+         call/2, call/3, cast/2, stop/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
@@ -77,7 +77,10 @@ call(Server, Call, Timeout) ->
 
 cast(Server, Msg) ->
     gen_server:cast(Server, {cb, Msg}).
-    
+
+stop(Server) ->
+    gen_server:call(Server, stop_regine_server).
+
 %% ------------------------------------------------------------------------------------------
 %% -- gen_server callbacks
 -record(state, {
@@ -166,6 +169,9 @@ handle_call({cb, Call}, From, State = #state{mod = CBMod, modstate = CBState0}) 
         Other ->
             {reply, Other, State}
     end;
+
+handle_call(stop_regine_server, _From, State) ->
+    {stop, normal, ok,  State};
 
 handle_call(_Call, _From, State) ->
     {noreply, State}.
