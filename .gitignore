@@ -1,4 +1,12 @@
+.eunit
+.railing
+deps
+*.o
 *.beam
-/ebin
-/dist
-/test-log
+*.plt
+erl_crash.dump
+ebin
+rel/flexx
+.concrete/DEV_MODE
+.rebar
+Gemfile.lock
