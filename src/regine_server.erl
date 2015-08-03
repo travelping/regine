@@ -86,7 +86,7 @@ stop(Server) ->
 -record(state, {
     mod      :: module(),
     modstate :: term(),
-    pidmap   :: dict()
+    pidmap   :: dict:dict()
 }).
 
 init({CBMod, CBArgs}) ->
