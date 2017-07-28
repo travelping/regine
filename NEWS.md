@@ -1,6 +1,13 @@
 Regine
 ==========
 
+Changes with 0.3.0 - xx Jul 2017
+--------------------------------
+
+* support Erlang R20
+* replace ordsets with gb_sets
+* replace dicts for maps
+
 Changes with 0.2.1 - 03 Aug 2015
 --------------------------------
 
