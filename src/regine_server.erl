@@ -1,4 +1,4 @@
-%% Copyright 2011-2012, Travelping GmbH <info@travelping.com>
+%% Copyright 2011-2017, Travelping GmbH <info@travelping.com>
 
 %% Permission is hereby granted, free of charge, to any person obtaining a
 %% copy of this software and associated documentation files (the "Software"),
@@ -22,20 +22,56 @@
 -behaviour(gen_server).
 
 -export([start/2, start/3, start_link/2, start_link/3, register/4, unregister/3, update/4,
-         unregister_pid/2, unregister_pid/3, lookup_pid/2, behaviour_info/1,
+         unregister_pid/2, unregister_pid/3, lookup_pid/2,
          call/2, call/3, cast/2, stop/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
 
 %% ------------------------------------------------------------------------------------------
+%% -- Behavior
+
+-callback init(Args :: term()) ->
+    {ok, State :: term()} |
+    {stop, Reason :: term()}.
+
+-callback handle_register(Pid :: pid(), Key :: term(), Args :: term(), State :: term()) ->
+    {ok, Keys :: [term()], NewState :: term()} |
+    {error, Reason :: term()}.
+
+-callback handle_unregister(Key :: term(), Args :: term(), State :: term()) ->
+    {Keys :: [term()], NewState :: term()}.
+
+-callback handle_update(OldKey :: term(), NewKey :: term(), Args :: term(), State :: term()) ->
+    {Pids :: [pid()], NewState :: term()}.
+
+-callback handle_pid_remove(Pid :: pid(), Keys :: [term()], State :: term()) ->
+    NewState :: term().
+
+-callback handle_death(Pid :: pid(), Reason :: term(), State :: term()) ->
+    NewState :: term().
+
+-callback terminate(Reason :: term(), State :: term()) ->
+    ok.
+
+-callback handle_call(Request :: term(), From :: {pid(), Tag :: term()},
+                      State :: term()) ->
+    {reply, Reply :: term(), NewState :: term()} |
+    {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+
+-callback handle_cast(Request :: term(), State :: term()) ->
+    {noreply, NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+
+-callback handle_info(Info :: term(), State :: term()) ->
+    {noreply, NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+
+-optional_callbacks([handle_call/3, handle_cast/2, handle_info/2, handle_update/4]).
+
+%% ------------------------------------------------------------------------------------------
 %% -- API
-behaviour_info(callbacks) ->
-    %% TODO: code_change/3
-    [{init,1}, {handle_register,4}, {handle_unregister,3}, {handle_pid_remove,3}, {handle_death,3}, {terminate,2}];
-    %% these are optional: {handle_call, 3}, {handle_cast, 2}, {handle_info, 2}, {handle_update,4}
-behaviour_info(_) ->
-    undefined.
 
 start(CallbackModule, InitArgs) ->
     gen_server:start(?MODULE, {CallbackModule, InitArgs}, []).
@@ -99,70 +135,73 @@ init({CBMod, CBArgs}) ->
             {stop, Reason}
     end.
 
-handle_call({register, Pid, Key, OtherArgs}, _From, State = #state{mod = CBMod, modstate = CBState, pidmap = PidMap}) ->
-    case CBMod:handle_register(Pid, Key, OtherArgs, CBState) of
-        {ok, DelKeys, NewCBState} ->
+handle_call({register, Pid, Key, OtherArgs}, _From,
+	    State0 = #state{pidmap = PidMap}) ->
+    case handle_register(Pid, Key, OtherArgs, State0) of
+        {ok, DelKeys, State1} ->
             link(Pid), %% TODO: handle case when registered pid is not alive
             DKSet     = ordsets:from_list(DelKeys),
-            NewPidMap = maps:update_with(Pid, fun (Old) -> ordsets:union(DKSet, Old) end, DelKeys, PidMap),
-            NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
+            NewPidMap = maps:update_with(Pid,
+					 fun (Old) ->
+						 ordsets:union(DKSet, Old)
+					 end, DelKeys, PidMap),
+            NewState  = State1#state{pidmap = NewPidMap},
             {reply, ok, NewState};
         ErrorReply = {error, _} ->
-            {reply, ErrorReply, State}
+            {reply, ErrorReply, State0}
     end;
 
-handle_call({unregister_key, Key, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
-    {RegPids, NewCBState} = CBMod:handle_unregister(Key, OtherArgs, CBState),
-    NewPidMap = lists:foldl(fun (Pid, Acc) -> remove_pid_key(Pid, Key, Acc) end, PidMap, RegPids),
-    NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
+handle_call({unregister_key, Key, OtherArgs}, _From,
+	    State0 = #state{pidmap = PidMap}) ->
+    {RegPids, State1} = handle_unregister(Key, OtherArgs, State0),
+    NewPidMap = lists:foldl(fun (Pid, Acc) ->
+				    remove_pid_key(Pid, Key, Acc)
+			    end, PidMap, RegPids),
+    NewState  = State1#state{pidmap = NewPidMap},
     {reply, ok, NewState};
 
-handle_call({update_key, OldKey, NewKey, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
-    {RegPids, NewCBState} =
-	try CBMod:handle_update(OldKey, NewKey, OtherArgs, CBState)
-	catch
-	    error:undef ->
-		default_update(OldKey, NewKey, OtherArgs, CBMod, CBState)
-	end,
-    NewPidMap = lists:foldl(fun (Pid, Acc) -> update_pid_key(Pid, OldKey, NewKey, Acc) end, PidMap, RegPids),
-    NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
+handle_call({update_key, OldKey, NewKey, OtherArgs}, _From,
+	    State0 = #state{pidmap = PidMap}) ->
+    {RegPids, State1} = handle_update(OldKey, NewKey, OtherArgs, State0),
+    NewPidMap = lists:foldl(fun (Pid, Acc) ->
+				    update_pid_key(Pid, OldKey, NewKey, Acc)
+			    end, PidMap, RegPids),
+    NewState = State1#state{pidmap = NewPidMap},
     {reply, ok, NewState};
 
-handle_call({unregister_pid, Pid}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+handle_call({unregister_pid, Pid}, _From, State0 = #state{pidmap = PidMap}) ->
     case PidMap of
 	#{Pid := Keys} ->
             unlink(Pid),
-            NewCBState = CBMod:handle_pid_remove(Pid, Keys, CBState),
-            NewPidMap  = maps:remove(Pid, PidMap),
-            NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
-            {reply, ok, NewState};
+	    State1 = handle_pid_remove(Pid, Keys, State0),
+	    State  = State1#state{pidmap = maps:remove(Pid, PidMap)},
+            {reply, ok, State};
         _ ->
-            {reply, {error, unknown_pid}, State}
+            {reply, {error, unknown_pid}, State0}
     end;
 
-handle_call({unregister_pid_key, Pid, Key}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
+handle_call({unregister_pid_key, Pid, Key}, _From, State0 = #state{pidmap = PidMap}) ->
     case PidMap of
 	#{Pid := _} ->
-            NewCBState = CBMod:handle_pid_remove(Pid, [Key], CBState),
-            NewPidMap  = remove_pid_key(Pid, Key, PidMap),
-            NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
-            {reply, ok, NewState};
+	    State1 = handle_pid_remove(Pid, [Key], State0),
+            State  = State1#state{pidmap = remove_pid_key(Pid, Key, PidMap)},
+	    {reply, ok, State};
         _ ->
-            {reply, {error, unknown_pid}, State}
+            {reply, {error, unknown_pid}, State0}
     end;
 
 handle_call({lookup_pid, Pid}, _From, State = #state{pidmap = PidMap}) ->
     Keys = maps:get(Pid, PidMap, []),
     {reply, Keys, State};
 
-handle_call({cb, Call}, From, State = #state{mod = CBMod, modstate = CBState0}) ->
-    case catch CBMod:handle_call(Call, From, CBState0) of
-        {reply, Reply, CBState1} ->
-            {reply, Reply, State#state{modstate = CBState1}};
-        {stop, Reason, Reply, CBState1} ->
-            {stop, Reason, Reply, State#state{modstate = CBState1}};
-        {stop, Reason, CBState1} ->
-            {stop, Reason, State#state{modstate = CBState1}};
+handle_call({cb, Call}, From, State) ->
+    case catch cb(handle_call, [Call, From], State) of
+        {reply, Reply, CBState} ->
+	    {reply, Reply, cb_state(CBState, State)};
+        {stop, Reason, Reply, CBState} ->
+	    {reply, Reason, Reply, cb_state(CBState, State)};
+        {stop, Reason, CBState} ->
+	    {stop, Reason, cb_state(CBState, State)};
         Other ->
             {reply, Other, State}
     end;
@@ -173,12 +212,12 @@ handle_call(stop_regine_server, _From, State) ->
 handle_call(_Call, _From, State) ->
     {noreply, State}.
 
-handle_cast({cb, Msg}, State = #state{mod = CBMod, modstate = CBState0}) ->
-    case catch CBMod:handle_cast(Msg, CBState0) of
-        {noreply, CBState1} ->
-            {noreply, State#state{modstate = CBState1}};
-        {stop, Reason, CBState1} ->
-            {stop, Reason, State#state{modstate = CBState1}};
+handle_cast({cb, Msg}, State)->
+    case catch cb(handle_cast, [Msg], State) of
+        {noreply, CBState} ->
+            {noreply, cb_state(CBState, State)};
+        {stop, Reason, CBState} ->
+            {stop, Reason, cb_state(CBState, State)};
         _ ->
             {noreply, State}
     end;
@@ -186,7 +225,8 @@ handle_cast({cb, Msg}, State = #state{mod = CBMod, modstate = CBState0}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState0}) ->
+handle_info({'EXIT', Pid, Reason},
+	    State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState0}) ->
     case PidMap of
 	#{Pid := Keys} ->
             CBState1  = CBMod:handle_death(Pid, Reason, CBState0),
@@ -201,41 +241,82 @@ handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, 
             {noreply, State}
     end;
 
-handle_info(Info, State = #state{mod = CBMod, modstate = CBState0}) ->
-    case catch CBMod:handle_info(Info, CBState0) of
-        {noreply, CBState1} ->
-            {noreply, State#state{modstate = CBState1}};
-        {stop, Reason, CBState1} ->
-            {stop, Reason, State#state{modstate = CBState1}};
+handle_info(Info, State) ->
+    case catch cb(handle_info, [Info], State) of
+        {noreply, CBState} ->
+            {noreply, cb_state(CBState, State)};
+        {stop, Reason, CBState} ->
+            {stop, Reason, cb_state(CBState, State)};
         _ ->
             {noreply, State}
     end.
 
-terminate(Reason, #state{mod = CBMod, modstate = CBState}) ->
-    CBMod:terminate(Reason, CBState).
+terminate(Reason, State) ->
+    cb(terminate, [Reason], State).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% ------------------------------------------------------------------------------------------
+%% -- cb module wrappers
+
+handle_register(Pid, Key, OtherArgs, State) ->
+    case cb(handle_register, [Pid, Key, OtherArgs], State) of
+        {ok, DelKeys, CBState} ->
+	    {ok, DelKeys, cb_state(CBState, State)};
+	Other ->
+	    Other
+    end.
+
+handle_unregister(Key, OtherArgs, State) ->
+    {RegPids, CBState} = cb(handle_unregister, [Key, OtherArgs], State),
+    {RegPids, cb_state(CBState, State)}.
+
+handle_update(OldKey, NewKey, OtherArgs, State) ->
+    {RegPids, CBState} =
+	try cb(handle_update, [OldKey, NewKey, OtherArgs], State)
+	catch
+	    error:undef ->
+		default_update(OldKey, NewKey, OtherArgs, State)
+	end,
+    {RegPids, cb_state(CBState, State)}.
+
+handle_pid_remove(Pid, Keys, State) ->
+    CBState = cb(handle_pid_remove, [Pid, Keys], State),
+    cb_state(CBState, State).
+
+%% ------------------------------------------------------------------------------------------
 %% -- helpers
+
+cb(F, A,  #state{mod = CBMod, modstate = CBState}) ->
+    apply(CBMod, F, A ++ [CBState]).
+
+cb_state(CBState, State) ->
+    State#state{modstate = CBState}.
+
 remove_pid_key(Pid, Key, PidMap) ->
     case PidMap of
 	#{Pid := [Key]} ->
             unlink(Pid),
             maps:remove(Pid, PidMap);
-	#{Pid := [_OtherKey]} ->
-            PidMap;
-        #{Pid := AllKeys} ->
-            PidMap#{Pid => ordsets:del_element(Key, AllKeys)};
+        #{Pid := Keys} ->
+            PidMap#{Pid => ordsets:del_element(Key, Keys)};
         _ ->
             PidMap
     end.
 
 update_pid_key(Pid, OldKey, NewKey, PidMap) ->
-	maps:update_with(Pid, fun(Old) -> ordsets:add_element(NewKey, ordsets:del_element(OldKey, Old)) end, NewKey, PidMap).
+	maps:update_with(Pid,
+			 fun(Old) ->
+				 ordsets:add_element(NewKey, ordsets:del_element(OldKey, Old))
+			 end, NewKey, PidMap).
 
-default_update(OldKey, NewKey, OtherArgs, CBMod, CBState) ->
+default_update(OldKey, NewKey, OtherArgs, #state{mod = CBMod, modstate = CBState}) ->
 	{RegPids, CBState1} = CBMod:handle_unregister(OldKey, OtherArgs, CBState),
-	NewCBState = lists:foldl(fun(Pid, StateX) -> {ok, _, NewStateX} = CBMod:handle_register(Pid, NewKey, OtherArgs, StateX), NewStateX end, CBState1, RegPids),
+	NewCBState = lists:foldl(
+		       fun(Pid, StateX) ->
+			       {ok, _, NewStateX} =
+				   CBMod:handle_register(Pid, NewKey, OtherArgs, StateX),
+			       NewStateX
+		       end, CBState1, RegPids),
 	{RegPids, NewCBState}.
