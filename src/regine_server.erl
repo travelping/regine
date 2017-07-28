@@ -86,7 +86,7 @@ stop(Server) ->
 -record(state, {
     mod      :: module(),
     modstate :: term(),
-    pidmap   :: dict:dict()
+    pidmap   :: map()
 }).
 
 init({CBMod, CBArgs}) ->
@@ -94,7 +94,7 @@ init({CBMod, CBArgs}) ->
 
     case CBMod:init(CBArgs) of
         {ok, CBState} ->
-            {ok, #state{pidmap = dict:new(), mod = CBMod, modstate = CBState}};
+            {ok, #state{pidmap = #{}, mod = CBMod, modstate = CBState}};
         {stop, Reason} ->
             {stop, Reason}
     end.
@@ -104,7 +104,7 @@ handle_call({register, Pid, Key, OtherArgs}, _From, State = #state{mod = CBMod, 
         {ok, DelKeys, NewCBState} ->
             link(Pid), %% TODO: handle case when registered pid is not alive
             DKSet     = ordsets:from_list(DelKeys),
-            NewPidMap = dict:update(Pid, fun (Old) -> ordsets:union(DKSet, Old) end, DelKeys, PidMap),
+            NewPidMap = maps:update_with(Pid, fun (Old) -> ordsets:union(DKSet, Old) end, DelKeys, PidMap),
             NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
             {reply, ok, NewState};
         ErrorReply = {error, _} ->
@@ -118,45 +118,42 @@ handle_call({unregister_key, Key, OtherArgs}, _From, State = #state{pidmap = Pid
     {reply, ok, NewState};
 
 handle_call({update_key, OldKey, NewKey, OtherArgs}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
-	{RegPids, NewCBState} = try CBMod:handle_update(OldKey, NewKey, OtherArgs, CBState)
-							catch
-								error:undef ->
-									default_update(OldKey, NewKey, OtherArgs, CBMod, CBState)
-							end,
+    {RegPids, NewCBState} =
+	try CBMod:handle_update(OldKey, NewKey, OtherArgs, CBState)
+	catch
+	    error:undef ->
+		default_update(OldKey, NewKey, OtherArgs, CBMod, CBState)
+	end,
     NewPidMap = lists:foldl(fun (Pid, Acc) -> update_pid_key(Pid, OldKey, NewKey, Acc) end, PidMap, RegPids),
     NewState  = State#state{modstate = NewCBState, pidmap = NewPidMap},
     {reply, ok, NewState};
 
 handle_call({unregister_pid, Pid}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
-    case dict:find(Pid, PidMap) of
-        {ok, Keys} ->
+    case PidMap of
+	#{Pid := Keys} ->
             unlink(Pid),
             NewCBState = CBMod:handle_pid_remove(Pid, Keys, CBState),
-            NewPidMap  = dict:erase(Pid, PidMap),
+            NewPidMap  = maps:remove(Pid, PidMap),
             NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
             {reply, ok, NewState};
-        error ->
+        _ ->
             {reply, {error, unknown_pid}, State}
     end;
 
 handle_call({unregister_pid_key, Pid, Key}, _From, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState}) ->
-    case dict:is_key(Pid, PidMap) of
-        true ->
+    case PidMap of
+	#{Pid := _} ->
             NewCBState = CBMod:handle_pid_remove(Pid, [Key], CBState),
             NewPidMap  = remove_pid_key(Pid, Key, PidMap),
             NewState   = State#state{modstate = NewCBState, pidmap = NewPidMap},
             {reply, ok, NewState};
-        false ->
+        _ ->
             {reply, {error, unknown_pid}, State}
     end;
 
 handle_call({lookup_pid, Pid}, _From, State = #state{pidmap = PidMap}) ->
-    case dict:find(Pid, PidMap) of
-        {ok, Keys} ->
-            {reply, Keys, State};
-        error ->
-            {reply, [], State}
-    end;
+    Keys = maps:get(Pid, PidMap, []),
+    {reply, Keys, State};
 
 handle_call({cb, Call}, From, State = #state{mod = CBMod, modstate = CBState0}) ->
     case catch CBMod:handle_call(Call, From, CBState0) of
@@ -190,17 +187,17 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'EXIT', Pid, Reason}, State = #state{pidmap = PidMap, mod = CBMod, modstate = CBState0}) ->
-    case dict:find(Pid, PidMap) of
-        {ok, Keys} ->
+    case PidMap of
+	#{Pid := Keys} ->
             CBState1  = CBMod:handle_death(Pid, Reason, CBState0),
             CBState2  = CBMod:handle_pid_remove(Pid, Keys, CBState1),
-            NewPidMap = dict:erase(Pid, PidMap),
+            NewPidMap = maps:remove(Pid, PidMap),
             NewState  = State#state{modstate = CBState2, pidmap = NewPidMap},
             {noreply, NewState};
         error ->
-			%% ignore 'EXIT' for unknown pid
-			%%  under some special circumstance we might get an 'EXIT'
-			%%  for the same pid multiple times
+	    %% ignore 'EXIT' for unknown pid
+	    %%  under some special circumstance we might get an 'EXIT'
+	    %%  for the same pid multiple times
             {noreply, State}
     end;
 
@@ -223,20 +220,20 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------------------------------
 %% -- helpers
 remove_pid_key(Pid, Key, PidMap) ->
-    case dict:find(Pid, PidMap) of
-        {ok, [Key]} ->
+    case PidMap of
+	#{Pid := [Key]} ->
             unlink(Pid),
-            dict:erase(Pid, PidMap);
-        {ok, [_OtherKey]} ->
+            maps:remove(Pid, PidMap);
+	#{Pid := [_OtherKey]} ->
             PidMap;
-        {ok, AllKeys} ->
-            dict:store(Pid, ordsets:del_element(Key, AllKeys), PidMap);
-        error ->
+        #{Pid := AllKeys} ->
+            PidMap#{Pid => ordsets:del_element(Key, AllKeys)};
+        _ ->
             PidMap
     end.
 
 update_pid_key(Pid, OldKey, NewKey, PidMap) ->
-	dict:update(Pid, fun(Old) -> ordsets:add_element(NewKey, ordsets:del_element(OldKey, Old)) end, NewKey, PidMap).
+	maps:update_with(Pid, fun(Old) -> ordsets:add_element(NewKey, ordsets:del_element(OldKey, Old)) end, NewKey, PidMap).
 
 default_update(OldKey, NewKey, OtherArgs, CBMod, CBState) ->
 	{RegPids, CBState1} = CBMod:handle_unregister(OldKey, OtherArgs, CBState),
