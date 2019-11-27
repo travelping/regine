@@ -23,8 +23,8 @@ Using rebar3:
 [1]: https://github.com/uwiger/gproc
 
 <!-- Badges -->
-[travis]: https://travis-ci.org/travelping/regine
-[travis badge]: https://img.shields.io/travis/travelping/regine/master.svg?style=flat-square
+[travis]: https://travis-ci.com/travelping/regine
+[travis badge]: https://img.shields.io/travis/com/travelping/regine/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/regine
 [coveralls badge]: https://img.shields.io/coveralls/travelping/regine/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R19.1%20to%2020.0-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R19.1%20to%2022.1-blue.svg?style=flat-square
