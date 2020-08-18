@@ -198,6 +198,8 @@ handle_call({cb, Call}, From, State) ->
     case catch cb(handle_call, [Call, From], State) of
         {reply, Reply, CBState} ->
 	    {reply, Reply, cb_state(CBState, State)};
+        {noreply, CBState} ->
+	    {noreply, cb_state(CBState, State)};
         {stop, Reason, Reply, CBState} ->
 	    {reply, Reason, Reply, cb_state(CBState, State)};
         {stop, Reason, CBState} ->
