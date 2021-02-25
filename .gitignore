@@ -2,3 +2,5 @@
 /ebin
 /dist
 /test-log
+rebar3
+rebar.lock
