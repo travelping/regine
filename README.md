@@ -27,4 +27,4 @@ Using rebar3:
 [gh badge]: https://img.shields.io/github/workflow/status/travelping/regine/CI?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/regine
 [coveralls badge]: https://img.shields.io/coveralls/travelping/regine/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R19.1%20to%2023.2-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-19.1%20to%2023.2-blue.svg?style=flat-square
