@@ -4,3 +4,5 @@
 /test-log
 rebar3
 rebar.lock
+doc
+_build

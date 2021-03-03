@@ -1,5 +1,7 @@
 regine - modular Erlang process registry
 ========================================
+[![Hex.pm Version][hexpm version]][hexpm]
+[![Hex.pm Downloads][hexpm downloads]][hexpm]
 [![Build Status][gh badge]][gh]
 [![Coverage Status][coveralls badge]][coveralls]
 [![Erlang Versions][erlang version badge]][gh]
@@ -23,8 +25,11 @@ Using rebar3:
 [1]: https://github.com/uwiger/gproc
 
 <!-- Badges -->
+[hexpm]: https://hex.pm/packages/regine
+[hexpm version]: https://img.shields.io/hexpm/v/regine.svg?style=flat-square
+[hexpm downloads]: https://img.shields.io/hexpm/dt/regine.svg?style=flat-square
 [gh]: https://github.com/travelping/regine/actions/workflows/main.yml
 [gh badge]: https://img.shields.io/github/workflow/status/travelping/regine/CI?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/regine
-[coveralls badge]: https://img.shields.io/coveralls/travelping/regine/master.svg?style=flat-square
+[coveralls badge]: https://img.shields.io/coveralls/travelping/regine?style=flat-square
 [erlang version badge]: https://img.shields.io/badge/erlang-19.1%20to%2023.2-blue.svg?style=flat-square
