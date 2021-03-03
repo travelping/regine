@@ -3,5 +3,7 @@
    {vsn, semver},
    {registered,[]},
    {env,[]},
-   {applications,[kernel,stdlib]}]
+   {applications,[kernel,stdlib]},
+   {licenses, ["MIT"]},
+   {links, [{"Github", "https://github.com/travelping/regine"}]}]
 }.
