@@ -1,6 +1,12 @@
 Regine
 ==========
 
+Version 1.1.0 - 20 October 2021
+---------------------------
+
+**Features** :rocket:
+* [#10](https://github.com/travelping/regine/pull/10) Add a `Actions` return argument to callback handlers
+
 Version 1.0.0 - 15 March 2021
 ---------------------------
 
