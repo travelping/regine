@@ -56,11 +56,13 @@
 
 -callback handle_call(Request :: term(), From :: {pid(), Tag :: term()},
                       State :: term()) ->
+    {reply, Reply :: term(), NewState :: term(), Actions :: list()} |
     {reply, Reply :: term(), NewState :: term()} |
     {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
     {stop, Reason :: term(), NewState :: term()}.
 
 -callback handle_cast(Request :: term(), State :: term()) ->
+    {noreply, NewState :: term(), Actions :: list()} |
     {noreply, NewState :: term()} |
     {stop, Reason :: term(), NewState :: term()}.
 
@@ -135,20 +137,12 @@ init({CBMod, CBArgs}) ->
             {stop, Reason}
     end.
 
-handle_call({register, Pid, Key, OtherArgs}, _From,
-	    State0 = #state{pidmap = PidMap}) ->
-    case handle_register(Pid, Key, OtherArgs, State0) of
-        {ok, DelKeys, State1} ->
-            link(Pid), %% TODO: handle case when registered pid is not alive
-            DKSet     = ordsets:from_list(DelKeys),
-            NewPidMap = maps:update_with(Pid,
-					 fun (Old) ->
-						 ordsets:union(DKSet, Old)
-					 end, DelKeys, PidMap),
-            NewState  = State1#state{pidmap = NewPidMap},
-            {reply, ok, NewState};
-        ErrorReply = {error, _} ->
-            {reply, ErrorReply, State0}
+handle_call({register, Pid, Key, OtherArgs}, _From, State0) ->
+    case server_handle_register(Pid, Key, OtherArgs, State0) of
+	{ok, State} ->
+	    {reply, ok, State};
+	Error = {error, _} ->
+	    {reply, Error, State0}
     end;
 
 handle_call({unregister_key, Key, OtherArgs}, _From,
@@ -196,8 +190,12 @@ handle_call({lookup_pid, Pid}, _From, State = #state{pidmap = PidMap}) ->
 
 handle_call({cb, Call}, From, State) ->
     case catch cb(handle_call, [Call, From], State) of
+        {reply, Reply, CBState, Actions} ->
+	    {reply, Reply, actions(Actions, cb_state(CBState, State))};
         {reply, Reply, CBState} ->
 	    {reply, Reply, cb_state(CBState, State)};
+        {noreply, CBState, Actions} ->
+	    {noreply, actions(Actions, cb_state(CBState, State))};
         {noreply, CBState} ->
 	    {noreply, cb_state(CBState, State)};
         {stop, Reason, Reply, CBState} ->
@@ -258,6 +256,23 @@ terminate(Reason, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%% ------------------------------------------------------------------------------------------
+%% -- server side registration
+
+server_handle_register(Pid, Key, OtherArgs, State0 = #state{pidmap = PidMap}) ->
+    case handle_register(Pid, Key, OtherArgs, State0) of
+	{ok, DelKeys, State1} ->
+	    link(Pid), %% TODO: handle case when registered pid is not alive
+	    DKSet     = ordsets:from_list(DelKeys),
+	    NewPidMap = maps:update_with(Pid,
+					 fun (Old) ->
+						 ordsets:union(DKSet, Old)
+					 end, DelKeys, PidMap),
+	    {ok, State1#state{pidmap = NewPidMap}};
+	Error = {error, _} ->
+	    Error
+    end.
 
 %% ------------------------------------------------------------------------------------------
 %% -- cb module wrappers
@@ -322,3 +337,12 @@ default_update(OldKey, NewKey, OtherArgs, #state{mod = CBMod, modstate = CBState
 			       NewStateX
 		       end, CBState1, RegPids),
 	{RegPids, NewCBState}.
+
+actions([], State) ->
+    State;
+actions([H|T], State) ->
+    actions(T, action(H, State)).
+
+action({register, Pid, Key, OtherArgs}, State0) ->
+    {ok, State} = server_handle_register(Pid, Key, OtherArgs, State0),
+    State.
